@@ -1,92 +1,76 @@
-# Docker and Docker Compose based environment for Drupal.
-# See https://github.com/blinkreaction/docker-fig-drupal for more information and documentation.
-
-# Web node
-web:
-  hostname: web
-  image: blinkreaction/drupal-apache-php:2.2-5.5
+globalnginx:
+  hostname: globalnginx
+  image: nginx
+  volumes:
+    - "/tmp/nginx:/etc/nginx/conf.d"
+    - "~/units/globalnginx/certs:/etc/nginx/certs"
+  expose:
+    - "80"
+    - "443"
   ports:
     - "80:80"
     - "443:443"
-    # Use IP based mapping when working with multiple projects. See docs (^^) for more details.
-    #- 192.168.10.10:80:80 
-    #- 192.168.10.10:443:443 
-  volumes:
-    # PHP configuration overrides
-    - "./.docker/etc/php5/php.ini:/etc/php5/fpm/conf.d/z_php.ini"
-    # Project root folder mapping
-    - &project_root ".:/var/www"
-  links:
-    - db
-    # Uncomment this and the memcached service definition below to start using memcached.
-    #- memcached
 
-# DB node
-db:
-  hostname: db
-  image: blinkreaction/mysql:5.5
-  ports:
-    - "3306:3306"
-    # Use IP based mapping when working with multiple projects. See docs (^^) for more details.
-    #- 192.168.10.10:3306:3306
-  # DB configuration
+dockergen:
+  hostname: dockergen
+  image: jwilder/docker-gen
+  volumes_from:
+    - globalnginx
+  volumes:
+    - "/var/run/docker.sock:/tmp/docker.sock"
+    - "~/units/dockergen/:/etc/docker-gen/templates"
+    
+### The next line must be changed if moving this to a new folder. Change the part before _globalnginx_1 -watch to the name of the folder.
+  command: -notify-sighup dockerdrupal_globalnginx_1 -watch -only-exposed /etc/docker-gen/templates/nginx.tmpl /etc/nginx/conf.d/default.conf
+  links:
+    - globalnginx
+
+localdevdrupal:
+  hostname: localdevdrupal
+  image: meosch/localdevdrupal
+  expose:
+    - "80"
+    - "22"
+    - "3306"
+  ports: 
+#    - "9080:80"
+    - "9022:22"
+    - "9006:3306"
+    - "9001:9001"
   environment:
     - MYSQL_ROOT_PASSWORD=admin123
     - MYSQL_USER=drupal
     - MYSQL_PASSWORD=123
     - MYSQL_DATABASE=drupal
+    - VIRTUAL_HOST=localdev.docker
   volumes:
-     # MySQL configuration overrides
-     - "./.docker/etc/mysql/my.cnf:/etc/mysql/conf.d/z_my.cnf"
-     # Permanent DB data storage
-     - /var/lib/mysql
+    - "./public_html/:/var/www"
+# PHP configuration overrides
+    - "./.drude/etc/php5/php.ini:/etc/php5/fpm/conf.d/z_php.ini"
+  links:
+    - dockergen
 
 # CLI node
 # Used for all console commands and tools.
 cli:
   hostname: cli
-  image: blinkreaction/drupal-cli
+  image: blinkreaction/drupal-cli:php-5.6
   volumes:
-    # PHP configuration overrides
-    - "./.docker/etc/php5/php-cli.ini:/etc/php5/cli/conf.d/z_php.ini"
     # Project root folder mapping
-    - *project_root
-    # Host SSH keys mapping. Uncomment one of the lines below based on your setup.
-    - /.ssh:/.ssh   # boot2docker-vagrant
-    #- ~/.ssh:/.ssh  # Linux
+#    - ./:/var/www
+#    - ./project
+    # PHP configuration overrides
+    - "./.drude/etc/php5/php-cli.ini:/etc/php5/cli/conf.d/z_php.ini"
+    # Host SSH keys mappings.
+    # We try to map both options. The startup.sh script in cli container will decide which one to use.
+    - /.ssh:/.ssh-b2d  # boot2docker-vagrant
+    - ~/.ssh:/.ssh   # Linux
+    # Acquia credentials mapping
+    - /.acquia:/root/.acquia # boot2docker-vagrant
+    #- ~/.acquia:/root/.acquia # Linux
   links:
-    - db
-    - web
-    # Uncomment this and the browser service definition below to start using selenium2.
-    #- browser
-
-# Memcached node
-# Uncomment the service definition section below and the link in the web service above to start using memcached.
-# memcached:
-#   hostname: memcached
-#   image: memcached
-#   environment:
-#     # Memcached memory limit in megabytes
-#     - MEMCACHED_MEMORY_LIMIT=128
-
-# ngrok node
-# Uncomment the service definition section below to start using ngrok for sharing your local web server with the world.
-# share:
-#   hostname: share
-#   image: fnichol/ngrok
-#   ports:
-#     - "4040:4040"
-#     # Use IP based mapping when working with multiple projects. See docs (^^) for more details.
-#     #- 192.168.10.10:4040:4040
-#   links:
-#     - web:http
-
-# selenium2 node
-# Uncomment the service definition section below and the link in the web service above to start using selenium2 driver for Behat tests requiring JS support.
-# browser:
-#   hostname: browser
-#   image: selenium/standalone-chrome
-#   links:
-#     - web
-#   ports:
-#     - "4444:4444"
+#    - db
+    - localdevdrupal
+#    - web2
+    - dockergen
+#    - adminer
